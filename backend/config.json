@@ -1,0 +1,12 @@
+{
+  "port": 3001,
+  "pollIntervalMs": 300000,
+  "dataDir": "./data",
+  "apps": [
+    {
+      "id": "595068606",
+      "name": "Headspace",
+      "country": "us"
+    }
+  ]
+}
