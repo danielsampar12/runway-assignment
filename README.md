@@ -30,8 +30,8 @@ After source changes, add `--build` to rebuild images.
 
 ### Option B — Local
 
-Requires Node 20+ and **pnpm**. *(pnpm specifically; we'd rather not get
-supply-chain'd.)*
+Requires Node 20+ and **pnpm**. _(pnpm specifically; we'd rather not get
+supply-chain'd.)_
 
 ```bash
 # 1. Backend
@@ -63,9 +63,7 @@ pnpm lint             # eslint
   "port": 3001,
   "pollIntervalMs": 300000,
   "dataDir": "./data",
-  "apps": [
-    { "id": "595068606", "name": "Headspace", "country": "us" }
-  ]
+  "apps": [{ "id": "595068606", "name": "Headspace", "country": "us" }]
 }
 ```
 
@@ -132,17 +130,17 @@ Closure-based factories, not classes:
 
 ### Key decisions
 
-| Decision | Why |
-|---|---|
-| **Fastify** over stdlib `http` | Idiomatic Node — typed routes, JSON parsing, CORS for one dep |
-| **Per-app JSON file** | Spec allows external files; per-app gives natural isolation and easy debugging. Production = real DB |
-| **`Result<T,E>`** at HTTP boundaries | Status codes are meaningful for upstream failures. Filesystem errors throw — Node idiomatic |
-| **Atomic write via `rename`** | `rename` is atomic on same-FS; a crash never corrupts the canonical file |
-| **Recursive `setTimeout`** over `setInterval` | A slow poll can't overlap itself; next tick scheduled only after current finishes |
-| **SWR** for client data | Industry standard, ~5KB. Caching, dedup, revalidation, polling for free |
-| **shadcn/ui** | Components live in `src/components/ui/` — editable like any code, no opaque vendor styles |
-| **Vite proxy** for `/api/*` | No CORS dance; frontend code stays environment-agnostic |
-| **Backend tests only** | RSS parsing, store, filter — the meaty logic. UI is a thin shell over those |
+| Decision                                      | Why                                                                                                  |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| **Fastify** over stdlib `http`                | Idiomatic Node — typed routes, JSON parsing, CORS for one dep                                        |
+| **Per-app JSON file**                         | Spec allows external files; per-app gives natural isolation and easy debugging. Production = real DB |
+| **`Result<T,E>`** at HTTP boundaries          | Status codes are meaningful for upstream failures. Filesystem errors throw — Node idiomatic          |
+| **Atomic write via `rename`**                 | `rename` is atomic on same-FS; a crash never corrupts the canonical file                             |
+| **Recursive `setTimeout`** over `setInterval` | A slow poll can't overlap itself; next tick scheduled only after current finishes                    |
+| **SWR** for client data                       | Industry standard, ~5KB. Caching, dedup, revalidation, polling for free                              |
+| **shadcn/ui**                                 | Components live in `src/components/ui/` — editable like any code, no opaque vendor styles            |
+| **Vite proxy** for `/api/*`                   | No CORS dance; frontend code stays environment-agnostic                                              |
+| **Backend tests only**                        | RSS parsing, store, filter — the meaty logic. UI is a thin shell over those                          |
 
 ---
 
@@ -159,7 +157,7 @@ Closure-based factories, not classes:
 - **Shared types package** between backend and frontend. A 2-package monorepo
   doesn't justify the setup tax; 3+ would.
 - **`pino-pretty`** in dev for human-readable Fastify logs.
-- **Go branch** — port the backend to match Flow's primary stack.
+- **Go branch** — Go branch — an extra backend implementation in Go, included to show how I would ramp up on Runway’s backend stack.
 
 ---
 
