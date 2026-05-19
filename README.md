@@ -21,8 +21,7 @@ Requires Docker Desktop. From the repo root:
 docker compose up
 ```
 
-Backend on `:3001`, frontend on `:5173`. Frontend waits for the backend
-health check. Reviews persist in a named volume.
+Backend on `:3001`, frontend on `:5173`. Reviews persist in a named volume.
 
 Open http://localhost:5173.
 
