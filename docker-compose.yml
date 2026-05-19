@@ -9,12 +9,6 @@ services:
       - backend-data:/app/data
       # Mount config.json so reviewers can edit apps without rebuilding the image.
       - ./backend/config.json:/app/config.json:ro
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
     restart: unless-stopped
 
   frontend:
@@ -23,8 +17,7 @@ services:
     ports:
       - "5173:80"
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     restart: unless-stopped
 
 volumes:

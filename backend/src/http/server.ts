@@ -45,7 +45,9 @@ export function createServer({ store, apps }: ServerDeps): Server {
 
   return {
     start: async (port) => {
-      await fastify.listen({ port });
+      // Bind to 0.0.0.0 so the frontend container (or any host on the same
+      // network) can reach the server. Fastify defaults to loopback otherwise.
+      await fastify.listen({ port, host: "0.0.0.0" });
     },
     stop: () => fastify.close(),
   };
