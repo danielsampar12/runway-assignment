@@ -1,58 +1,52 @@
 # Recent iOS App Store Reviews Viewer
 
-A small backend service that polls Apple's App Store RSS feed for one or more
-iOS apps and a React frontend that displays the recent reviews.
+Polls Apple's App Store RSS feed for one or more iOS apps and displays recent
+reviews.
 
-- **Backend** — Node.js + TypeScript + Fastify. Polls Apple every 5 minutes,
-  persists reviews to per-app JSON files, exposes a REST API.
+- **Backend** — Node.js + TypeScript + Fastify. Polls every 5 min, persists to
+  per-app JSON files, exposes a REST API.
 - **Frontend** — Vite + React + TypeScript + Tailwind + shadcn/ui. Lists
-  reviews from the last 48 hours (configurable to 7d / 30d), polls the backend
-  on the same cadence so new reviews surface without a manual refresh.
+  reviews from the last 48h (or 7d / 30d), polls the backend on the same
+  cadence so new reviews surface without a manual refresh.
 
 ---
 
 ## Quick start
 
-### Option A — Docker (recommended for reviewers)
+### Option A — Docker (recommended)
 
-Requires Docker Desktop (or Docker Engine + Compose). From the repo root:
+Requires Docker Desktop. From the repo root:
 
 ```bash
-docker compose up --build
+docker compose up
 ```
 
-That builds both images, starts the backend on **:3001** and the frontend on
-**:5173**, persists reviews in a named volume (`backend-data`), and waits for
-the backend's `/health` endpoint before starting the frontend.
+Backend on `:3001`, frontend on `:5173`. Frontend waits for the backend
+health check. Reviews persist in a named volume.
 
-Then open http://localhost:5173.
+Open http://localhost:5173.
 
-To stop: `docker compose down`. To wipe persisted reviews:
-`docker compose down -v`.
+Stop with `docker compose down` (`-v` to also wipe persisted reviews).
+After source changes, add `--build` to rebuild images.
 
-### Option B — Local (pnpm)
+### Option B — Local
 
-Requires Node 20+ and pnpm.
+Requires Node 20+ and **pnpm**. *(pnpm specifically; we'd rather not get
+supply-chain'd.)*
 
 ```bash
 # 1. Backend
-cd backend
-pnpm install
-pnpm dev              # tsx watch → http://localhost:3001
+cd backend && pnpm install && pnpm dev    # → http://localhost:3001
 
 # 2. Frontend (in another terminal)
-cd frontend
-pnpm install
-pnpm dev              # vite → http://localhost:5173
+cd frontend && pnpm install && pnpm dev   # → http://localhost:5173
 ```
 
-Then open http://localhost:5173.
-
-### Other useful commands
+### Other commands
 
 ```bash
 # Backend
-pnpm test             # vitest run (26 unit tests)
+pnpm test             # vitest run (26 tests)
 pnpm lint             # eslint
 pnpm format           # prettier --write
 
@@ -63,8 +57,7 @@ pnpm lint             # eslint
 
 ### Configuration
 
-`backend/config.json` controls polled apps, poll interval, port, and where
-reviews are persisted:
+`backend/config.json`:
 
 ```json
 {
@@ -77,12 +70,11 @@ reviews are persisted:
 }
 ```
 
-Add more apps by appending objects to the `apps` array and restarting the
-backend. The App Store ID is the numeric segment in any App Store URL
-(`apps.apple.com/us/app/<name>/id<this-number>`).
+App ID = the numeric segment in any App Store URL. Append to `apps` and
+restart the backend.
 
-> ℹ️ Apple's RSS is sometimes sparse on recent reviews. If the 48-hour window
-> returns nothing, switch the **Window** selector in the UI to 7d or 30d.
+> ℹ️ Apple's RSS is often sparse on recent reviews. If 48h returns nothing,
+> switch the **Window** selector to 7d or 30d.
 
 ---
 
@@ -92,103 +84,83 @@ backend. The App Store ID is the numeric segment in any App Store URL
 
 ```
 runway/
-├── backend/                       # API server + poller
+├── backend/
 │   ├── src/
-│   │   ├── domain/                # types (Review, AppConfig, Config)
-│   │   ├── infra/                 # I/O boundaries (rss, store, config)
-│   │   ├── app/                   # orchestration (poller)
-│   │   ├── http/                  # Fastify routes (server)
-│   │   ├── lib/                   # cross-cutting utilities (Result type)
-│   │   └── index.ts               # entrypoint + graceful shutdown
-│   ├── tests/                     # vitest — rss + store coverage
-│   ├── data/                      # runtime: per-app review JSON (gitignored)
-│   └── config.json                # apps, port, interval, data dir
+│   │   ├── domain/      # types (Review, AppConfig, Config)
+│   │   ├── infra/       # I/O (rss, store, config)
+│   │   ├── app/         # orchestration (poller)
+│   │   ├── http/        # Fastify routes (server)
+│   │   ├── lib/         # cross-cutting (Result type)
+│   │   └── index.ts     # entrypoint + graceful shutdown
+│   ├── tests/           # vitest — rss + store coverage
+│   ├── data/            # runtime per-app review JSON (gitignored)
+│   └── config.json
 └── frontend/
     ├── src/
-    │   ├── components/ui/         # shadcn components (Select, Card, etc.)
-    │   ├── components/            # app-specific components (ReviewList)
-    │   ├── lib/                   # cn() utility
-    │   ├── api.ts                 # fetch helpers (used as SWR fetchers)
-    │   ├── App.tsx                # orchestration + SWR usage
-    │   ├── types.ts               # mirrors backend Review / AppInfo shapes
-    │   └── index.css              # Tailwind v4 + shadcn theme tokens
-    └── vite.config.ts             # /api/* proxied to backend on :3001
+    │   ├── components/ui/   # shadcn primitives
+    │   ├── components/      # app components (ReviewList)
+    │   ├── lib/             # cn() utility
+    │   ├── api.ts           # SWR fetchers
+    │   ├── App.tsx          # orchestration
+    │   ├── types.ts         # mirrors backend types
+    │   └── index.css        # Tailwind v4 + shadcn tokens
+    └── vite.config.ts       # /api/* → :3001 proxy
 ```
 
 ### Backend design
 
-Layered, closure-based factories instead of classes:
+Closure-based factories, not classes:
 
-- `rss.ts` — fetches Apple's RSS, parses the labeled JSON shape into `Review`,
-  walks pages until it hits a known review ID or the page cap. The boundary
-  cast (`as RawFeed`) is a single unsafe line; per-row validation in
-  `toReview()` keeps malformed entries from leaking through.
-- `store.ts` — per-app JSON file at `data/<appId>.json`. Atomic write via
-  `writeFile(tmp)` + `rename(tmp, target)` — a crash mid-write leaves the old
-  file intact, and any leftover `.tmp` is overwritten next merge.
-  Dedupes by review ID and sorts newest-first on each merge.
-- `poller.ts` — recursive `setTimeout` loop (not `setInterval`) so a slow
-  poll never overlaps itself. Sequential per-app: gentler on Apple, easier to
-  reason about for "any number of apps". One app's failure logs and continues
-  to the next.
-- `server.ts` — Fastify, three routes: `GET /health`, `GET /apps`,
-  `GET /apps/:appId/reviews?windowHours=48`. CORS enabled for the dev origin.
-- `index.ts` — wires the pieces, handles SIGINT/SIGTERM by stopping the
-  poller (so we don't write to the store mid-shutdown) then closing the
-  server.
+- **`rss.ts`** — walks Apple's pages until a known ID or page cap. Boundary
+  cast at `res.json()`, per-row validation in `toReview()` so one bad row
+  doesn't poison the page.
+- **`store.ts`** — per-app JSON, atomic write (`tmp` + `rename`), dedupes by
+  ID, sorts newest-first on every merge.
+- **`poller.ts`** — recursive `setTimeout` (overlap-proof), sequential per
+  app (gentle on Apple), errors per app log + continue.
+- **`server.ts`** — Fastify: `GET /health`, `/apps`, `/apps/:id/reviews?windowHours=`.
+- **`index.ts`** — graceful SIGINT/SIGTERM: stops the poller first (so it
+  doesn't write during shutdown), then closes the server.
 
 ### Frontend design
 
-- **State** managed by [SWR](https://swr.vercel.app) — `useSWR("apps")` for
-  the app list, and `useSWR(["reviews", appId, windowHours], fetcher, { refreshInterval })`
-  for the review list. The tuple key gives SWR a per-combination cache slot.
-  `refreshInterval` matches the backend's `pollIntervalMs` so new reviews
-  surface within one cycle.
-- **UI** built with shadcn/ui (Select, Card, Skeleton, Alert) on Tailwind v4.
-  No custom CSS file — just utility classes.
-- **Proxy** — Vite's dev server forwards `/api/*` to `http://localhost:3001`.
-  Avoids CORS gymnastics during local dev and gives the frontend a stable
-  base URL that doesn't depend on environment.
+- **State** — [SWR](https://swr.vercel.app). Tuple key `["reviews", appId, windowHours]`
+  gives each combo its own cache slot. `refreshInterval` matches
+  `pollIntervalMs` so new reviews surface within a cycle.
+- **UI** — shadcn/ui on Tailwind v4. No custom CSS file — utility classes only.
+- **Proxy** — Vite forwards `/api/*` to `:3001` in dev. In Docker, nginx does
+  the same job.
 
 ### Key decisions
 
 | Decision | Why |
 |---|---|
-| **Fastify** over stdlib `http` | Idiomatic Node, gives typed routes, JSON parsing, error handling and CORS for one dep |
-| **Per-app JSON file** over SQLite | The spec explicitly allows an external file; per-app file gives natural isolation and easy debuggability. A real production system would use a real DB |
-| **Result type** for HTTP boundary failures | Adopted from a Result/Either pattern I use in another project. Used only where status codes are meaningful (the Apple fetch). Internal/filesystem errors throw — Node idiomatic |
-| **Atomic write via `rename`** | Standard pattern. `rename` is atomic on POSIX same-filesystem; a crash mid-write never corrupts the canonical file |
-| **Recursive `setTimeout`** over `setInterval` | If a poll runs longer than the interval (rate limit, slow upstream), `setInterval` would queue overlapping calls. The recursive pattern guarantees the next tick is scheduled only after the previous finishes |
-| **SWR** for client data fetching | Industry standard, ~5KB. Gives caching, deduping, revalidation, polling, and `isLoading` / `error` for free. The hand-rolled `useState`+`useEffect` equivalent is harder to defend |
-| **shadcn/ui** | Components live in `src/components/ui/` and can be edited like any other file — no opaque vendor styles. Tailwind v4 keeps the build lean |
-| **Vite proxy** for `/api/*` | No CORS dance in dev, frontend code is environment-agnostic |
-| **No frontend tests** | The spec's bonus criterion is "well tested"; backend tests cover the meaty logic (RSS parsing, store dedupe/persistence, 48h filter). The UI is a thin shell over those. |
+| **Fastify** over stdlib `http` | Idiomatic Node — typed routes, JSON parsing, CORS for one dep |
+| **Per-app JSON file** | Spec allows external files; per-app gives natural isolation and easy debugging. Production = real DB |
+| **`Result<T,E>`** at HTTP boundaries | Status codes are meaningful for upstream failures. Filesystem errors throw — Node idiomatic |
+| **Atomic write via `rename`** | `rename` is atomic on same-FS; a crash never corrupts the canonical file |
+| **Recursive `setTimeout`** over `setInterval` | A slow poll can't overlap itself; next tick scheduled only after current finishes |
+| **SWR** for client data | Industry standard, ~5KB. Caching, dedup, revalidation, polling for free |
+| **shadcn/ui** | Components live in `src/components/ui/` — editable like any code, no opaque vendor styles |
+| **Vite proxy** for `/api/*` | No CORS dance; frontend code stays environment-agnostic |
+| **Backend tests only** | RSS parsing, store, filter — the meaty logic. UI is a thin shell over those |
 
 ---
 
 ## Future improvements
 
-Things I considered but didn't ship:
-
-- **Add-app UI**. A `Dialog` with a form (appId, name, country) calling a new
-  `POST /apps` endpoint. Would need a small `configStore` (sibling to the
-  review `Store`) with atomic writes to `config.json`, plus a way to signal
-  the running poller to start polling the new app immediately. Planned for a
-  separate branch.
-- **Dynamic config validation** with Zod or similar. Currently the
-  `config.json` shape is trusted via cast — fine for a single file we control,
-  not fine for anything taking external input.
-- **Server unit tests via `fastify.inject()`**. Would need a small refactor to
-  expose `registerRoutes` separately from `createServer`. End-to-end coverage
-  via curl already verifies the contract.
-- **Virtualized review list** (`react-virtuoso` or similar) once the window
-  can extend to months and the list crosses ~200 entries.
-- **Shared types package** between backend and frontend. Currently
-  `frontend/src/types.ts` mirrors `backend/src/domain/types.ts`. A 2-package
-  monorepo doesn't justify the setup tax of a workspace shared lib; at 3+
-  packages it would.
+- **Add-app UI** — `Dialog` + `POST /apps` + a small `configStore` with
+  atomic writes. Planned for a separate branch.
+- **Dynamic config validation** with Zod. Trusted via cast today — fine for a
+  single file we control.
+- **Server unit tests via `fastify.inject()`** — needs a small refactor to
+  expose `registerRoutes` separately.
+- **Virtualized list** once the window grows to months and crosses ~200
+  entries.
+- **Shared types package** between backend and frontend. A 2-package monorepo
+  doesn't justify the setup tax; 3+ would.
 - **`pino-pretty`** in dev for human-readable Fastify logs.
-- **Go branch** — a port of the backend to Go, matching Flow's primary stack.
+- **Go branch** — port the backend to match Flow's primary stack.
 
 ---
 
@@ -200,12 +172,9 @@ cd backend && pnpm test
 
 26 tests, ~300ms:
 
-- `tests/rss.test.ts` (13) — parses Apple's labeled shape, filters entries
-  without `im:rating`, rejects non-integer/out-of-range scores, returns
-  `Result.fail` with the right HTTP status on HTTP / network / JSON parse
-  failures, walks pages and breaks on known IDs, respects `maxPages`, bubbles
-  mid-page failures.
-- `tests/store.test.ts` (13) — ENOENT returns `[]`, merge dedupes by ID,
-  sorts newest-first, isolates by appId, **survives a leftover `.tmp` from a
-  prior crash**, and persists across multiple `createStore` instances (the
-  restart-survival contract).
+- **`tests/rss.test.ts`** (13) — Apple's labeled shape, filters bad rows
+  (no rating, non-integer, out of range), `Result.fail` on HTTP / network /
+  JSON failures, pagination walks and breaks on known IDs / `maxPages`.
+- **`tests/store.test.ts`** (13) — ENOENT → `[]`, dedupe by ID, newest-first
+  sort, per-appId isolation, **survives leftover `.tmp`**, persists across
+  `createStore` instances (the restart-survival contract).
