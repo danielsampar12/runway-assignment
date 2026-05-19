@@ -30,8 +30,7 @@ After source changes, add `--build` to rebuild images.
 
 ### Option B — Local
 
-Requires Node 20+ and **pnpm**. _(pnpm specifically; we'd rather not get
-supply-chain'd.)_
+Requires Node 20+ and **pnpm**.
 
 ```bash
 # 1. Backend
