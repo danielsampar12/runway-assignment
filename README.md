@@ -15,7 +15,7 @@ reviews.
 
 ### Option A — Docker (recommended)
 
-Requires Docker Desktop. From the repo root:
+Requires Docker. From the repo root:
 
 ```bash
 docker compose up
