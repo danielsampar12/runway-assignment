@@ -1,7 +1,7 @@
 import { useState } from "react";
+import useSWR from "swr";
 import { fetchApps, fetchReviews } from "./api";
 import { ReviewList } from "./components/ReviewList";
-import { useAsync } from "./hooks/useAsync";
 import {
   Select,
   SelectContent,
@@ -19,22 +19,29 @@ const WINDOW_OPTIONS = [
   { label: "30 days", value: 24 * 30 },
 ];
 
+// Matches the backend's pollIntervalMs (config.json). The frontend revalidates
+// reviews on the same cadence as the upstream RSS poller, so new
+// reviews surface in the UI without needing to refresh.
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
 function App() {
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const [windowHours, setWindowHours] = useState<number>(48);
 
-  const appsState = useAsync(() => fetchApps(), []);
-  const apps = appsState.status === "success" ? appsState.data : [];
+  const { data: appsData, error: appsError } = useSWR("apps", fetchApps);
+  const apps = appsData ?? [];
 
-  // Derive the "currently shown" app id rather than syncing it back into
-  // state in a useEffect — avoids the initial render where nothing is selected
-  // and the cascade of effects that would follow.
   const effectiveAppId = selectedAppId ?? apps[0]?.id ?? null;
   const selectedApp = apps.find((a) => a.id === effectiveAppId) ?? null;
 
-  const reviewsState = useAsync(
-    () => (effectiveAppId ? fetchReviews(effectiveAppId, windowHours) : Promise.resolve([])),
-    [effectiveAppId, windowHours],
+  const {
+    data: reviews,
+    error: reviewsError,
+    isLoading: reviewsLoading,
+  } = useSWR(
+    effectiveAppId ? (["reviews", effectiveAppId, windowHours] as const) : null,
+    ([, id, hours]) => fetchReviews(id, hours),
+    { refreshInterval: REFRESH_INTERVAL_MS },
   );
 
   return (
@@ -53,7 +60,9 @@ function App() {
             >
               <SelectTrigger className="min-w-[180px]">
                 <SelectValue placeholder="Select an app">
-                  {(value: string) => apps.find((a) => a.id === value)?.name ?? "Select an app"}
+                  {(value: string) =>
+                    apps.find((a) => a.id === value)?.name ?? "Select an app"
+                  }
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -92,11 +101,11 @@ function App() {
       </header>
 
       <main>
-        {appsState.status === "error" && (
+        {appsError && (
           <Alert variant="destructive" className="mb-4">
             <AlertCircleIcon />
             <AlertTitle>Couldn&apos;t load apps</AlertTitle>
-            <AlertDescription>{appsState.error}</AlertDescription>
+            <AlertDescription>{(appsError as Error).message}</AlertDescription>
           </Alert>
         )}
 
@@ -105,25 +114,25 @@ function App() {
             Showing reviews for{" "}
             <span className="font-medium text-foreground">{selectedApp.name}</span> (
             {selectedApp.country.toUpperCase()})
-            {reviewsState.status === "loading"
+            {reviewsLoading
               ? " — loading…"
-              : reviewsState.status === "success"
-                ? ` — ${reviewsState.data.length} review${
-                    reviewsState.data.length === 1 ? "" : "s"
-                  }`
-                : ""}
+              : reviewsError
+                ? ""
+                : ` — ${reviews?.length ?? 0} review${
+                    (reviews?.length ?? 0) === 1 ? "" : "s"
+                  }`}
           </p>
         )}
 
-        {reviewsState.status === "error" && (
+        {reviewsError && (
           <Alert variant="destructive" className="mb-4">
             <AlertCircleIcon />
             <AlertTitle>Couldn&apos;t load reviews</AlertTitle>
-            <AlertDescription>{reviewsState.error}</AlertDescription>
+            <AlertDescription>{(reviewsError as Error).message}</AlertDescription>
           </Alert>
         )}
 
-        {reviewsState.status === "loading" && (
+        {reviewsLoading && (
           <div className="flex flex-col gap-4">
             {Array.from({ length: 3 }).map((_, i) => (
               <Skeleton key={i} className="h-24 w-full" />
@@ -131,17 +140,13 @@ function App() {
           </div>
         )}
 
-        {reviewsState.status === "success" &&
-          reviewsState.data.length === 0 &&
-          selectedApp && (
-            <p className="py-8 text-center italic text-muted-foreground">
-              No reviews in the selected window.
-            </p>
-          )}
-
-        {reviewsState.status === "success" && reviewsState.data.length > 0 && (
-          <ReviewList reviews={reviewsState.data} />
+        {!reviewsLoading && !reviewsError && reviews && reviews.length === 0 && selectedApp && (
+          <p className="py-8 text-center italic text-muted-foreground">
+            No reviews in the selected window.
+          </p>
         )}
+
+        {reviews && reviews.length > 0 && <ReviewList reviews={reviews} />}
       </main>
     </div>
   );
