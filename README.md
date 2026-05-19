@@ -3,8 +3,12 @@
 Polls Apple's App Store RSS feed for one or more iOS apps and displays recent
 reviews.
 
-- **Backend** — Node.js + TypeScript + Fastify. Polls every 5 min, persists to
-  per-app JSON files, exposes a REST API.
+> 📌 **Branch:** `go-backend` — the backend is rewritten in Go.
+> The Node.js + Fastify variant lives on `main`. Both speak the same on-disk
+> JSON format and the same HTTP API, so the frontend works against either.
+
+- **Backend** — Go (stdlib `net/http` + `encoding/json`). Polls every 5 min,
+  persists to per-app JSON files, exposes a REST API.
 - **Frontend** — Vite + React + TypeScript + Tailwind + shadcn/ui. Lists
   reviews from the last 48h (or 7d / 30d), polls the backend on the same
   cadence so new reviews surface without a manual refresh.
@@ -30,28 +34,37 @@ After source changes, add `--build` to rebuild images.
 
 ### Option B — Local
 
-Requires Node 20+ and **pnpm**. *(pnpm specifically; we'd rather not get
-supply-chain'd.)*
+Requires **Go 1.23+** for the backend and Node 20+ / **pnpm** for the
+frontend. *(pnpm specifically; we'd rather not get supply-chain'd.)*
+
+> ⚠️ Go 1.22 + macOS 26 (Sequoia) has a known LC_UUID linker bug that prevents
+> the binary from launching. Go 1.23+ resolves it, or you can just use Docker.
 
 ```bash
 # 1. Backend
-cd backend && pnpm install && pnpm dev    # → http://localhost:3001
+cd backend && go run .                     # → http://localhost:3001
 
 # 2. Frontend (in another terminal)
-cd frontend && pnpm install && pnpm dev   # → http://localhost:5173
+cd frontend && pnpm install && pnpm dev    # → http://localhost:5173
 ```
 
 ### Other commands
 
 ```bash
 # Backend
-pnpm test             # vitest run (26 tests)
-pnpm lint             # eslint
-pnpm format           # prettier --write
+go test ./...        # 24 tests (rss + store)
+go vet ./...
+gofmt -d .           # check formatting; -w to apply
 
 # Frontend
-pnpm build            # tsc -b && vite build
-pnpm lint             # eslint
+pnpm build           # tsc -b && vite build
+pnpm lint            # eslint
+```
+
+If your local Go is < 1.23, run the tests inside a container:
+
+```bash
+docker run --rm -v "$(pwd):/src" -w /src golang:1.23-alpine go test ./...
 ```
 
 ### Configuration
@@ -84,42 +97,57 @@ restart the backend.
 ```
 runway/
 ├── backend/
-│   ├── src/
-│   │   ├── domain/      # types (Review, AppConfig, Config)
-│   │   ├── infra/       # I/O (rss, store, config)
-│   │   ├── app/         # orchestration (poller)
-│   │   ├── http/        # Fastify routes (server)
-│   │   ├── lib/         # cross-cutting (Result type)
-│   │   └── index.ts     # entrypoint + graceful shutdown
-│   ├── tests/           # vitest — rss + store coverage
-│   ├── data/            # runtime per-app review JSON (gitignored)
+│   ├── main.go                      # entrypoint + wiring + graceful shutdown
+│   ├── go.mod
+│   ├── internal/
+│   │   ├── domain/types.go          # Review, AppConfig, Config structs
+│   │   ├── config/config.go         # config.json loader
+│   │   ├── rss/                     # Apple RSS fetch + parse
+│   │   │   ├── rss.go
+│   │   │   └── rss_test.go
+│   │   ├── store/                   # per-app JSON, atomic write, dedupe
+│   │   │   ├── store.go
+│   │   │   └── store_test.go
+│   │   ├── poller/poller.go         # interval loop, sequential per app
+│   │   └── server/server.go         # net/http handlers
+│   ├── data/                        # runtime per-app review JSON (gitignored)
 │   └── config.json
 └── frontend/
     ├── src/
-    │   ├── components/ui/   # shadcn primitives
-    │   ├── components/      # app components (ReviewList)
-    │   ├── lib/             # cn() utility
-    │   ├── api.ts           # SWR fetchers
-    │   ├── App.tsx          # orchestration
-    │   ├── types.ts         # mirrors backend types
-    │   └── index.css        # Tailwind v4 + shadcn tokens
-    └── vite.config.ts       # /api/* → :3001 proxy
+    │   ├── components/ui/           # shadcn primitives
+    │   ├── components/              # app components (ReviewList)
+    │   ├── lib/                     # cn() utility
+    │   ├── api.ts                   # SWR fetchers
+    │   ├── App.tsx                  # orchestration
+    │   ├── types.ts                 # mirrors backend types
+    │   └── index.css                # Tailwind v4 + shadcn tokens
+    └── vite.config.ts               # /api/* → :3001 proxy
 ```
 
 ### Backend design
 
-Closure-based factories, not classes:
+Conventional Go layout — small package per concern under `internal/`:
 
-- **`rss.ts`** — walks Apple's pages until a known ID or page cap. Boundary
-  cast at `res.json()`, per-row validation in `toReview()` so one bad row
-  doesn't poison the page.
-- **`store.ts`** — per-app JSON, atomic write (`tmp` + `rename`), dedupes by
-  ID, sorts newest-first on every merge.
-- **`poller.ts`** — recursive `setTimeout` (overlap-proof), sequential per
-  app (gentle on Apple), errors per app log + continue.
-- **`server.ts`** — Fastify: `GET /health`, `/apps`, `/apps/:id/reviews?windowHours=`.
-- **`index.ts`** — graceful SIGINT/SIGTERM: stops the poller first (so it
-  doesn't write during shutdown), then closes the server.
+- **`rss`** — `FetchAllNewReviews` walks Apple's pages until a known ID or
+  page cap. JSON unmarshalled into private `rawEntry` / `rawFeed` types,
+  `toReview()` validates each row (rating in 1-5, required fields present)
+  so one malformed entry doesn't poison the page. Handles Apple's
+  array-or-single `entry` quirk via `normalizeEntries`.
+- **`store`** — per-app JSON file at `data/<appId>.json`. Atomic write via
+  `os.WriteFile(tmp)` + `os.Rename(tmp, target)`. Per-store `sync.Mutex`
+  serializes concurrent merges; reads don't need locking because rename is
+  atomic.
+- **`poller`** — `Start()` spawns a goroutine that polls immediately, then
+  uses a `time.Timer` driven by a `select` loop with a `done` channel for
+  clean shutdown. Sequential per app (gentle on Apple); errors per app are
+  logged and skipped, never crash the cycle.
+- **`server`** — `net/http` mux with three routes:
+  `GET /health`, `/apps`, `/apps/:appId/reviews?windowHours=`. CORS
+  middleware wraps the mux. Returns `*http.Server` so `main.go` can call
+  `Shutdown(ctx)` directly.
+- **`main`** — wires it all together, handles SIGINT/SIGTERM by stopping the
+  poller first (so it doesn't write during shutdown), then `Shutdown(ctx)`s
+  the server with a 5s timeout.
 
 ### Frontend design
 
@@ -134,46 +162,50 @@ Closure-based factories, not classes:
 
 | Decision | Why |
 |---|---|
-| **Fastify** over stdlib `http` | Idiomatic Node — typed routes, JSON parsing, CORS for one dep |
+| **Go stdlib `net/http`** | Capable enough — routing, middleware, graceful shutdown all built-in. No framework needed; matches Flow's preference for stdlib-first |
 | **Per-app JSON file** | Spec allows external files; per-app gives natural isolation and easy debugging. Production = real DB |
-| **`Result<T,E>`** at HTTP boundaries | Status codes are meaningful for upstream failures. Filesystem errors throw — Node idiomatic |
-| **Atomic write via `rename`** | `rename` is atomic on same-FS; a crash never corrupts the canonical file |
-| **Recursive `setTimeout`** over `setInterval` | A slow poll can't overlap itself; next tick scheduled only after current finishes |
+| **Atomic write via `os.Rename`** | Atomic on same-FS; a crash never corrupts the canonical file |
+| **`time.Timer` + select loop** over `time.Ticker` | Same overlap-proof reasoning as the Node version's recursive setTimeout — next tick scheduled only after current pollOnce finishes |
+| **`sync.Mutex` on Merge** | Serializes the read-then-write cycle. `Read` is safe without the lock because rename is atomic |
+| **JSON shape matches the Node version** | Same `data/<id>.json` layout — switch branches without losing reviews |
+| **`internal/` package layout** | Go convention for non-importable subpackages; signals "implementation details" to anyone consuming the module |
 | **SWR** for client data | Industry standard, ~5KB. Caching, dedup, revalidation, polling for free |
 | **shadcn/ui** | Components live in `src/components/ui/` — editable like any code, no opaque vendor styles |
-| **Vite proxy** for `/api/*` | No CORS dance; frontend code stays environment-agnostic |
-| **Backend tests only** | RSS parsing, store, filter — the meaty logic. UI is a thin shell over those |
 
 ---
 
 ## Future improvements
 
-- **Add-app UI** — `Dialog` + `POST /apps` + a small `configStore` with
-  atomic writes. Planned for a separate branch.
-- **Dynamic config validation** with Zod. Trusted via cast today — fine for a
-  single file we control.
-- **Server unit tests via `fastify.inject()`** — needs a small refactor to
-  expose `registerRoutes` separately.
-- **Virtualized list** once the window grows to months and crosses ~200
-  entries.
-- **Shared types package** between backend and frontend. A 2-package monorepo
-  doesn't justify the setup tax; 3+ would.
-- **`pino-pretty`** in dev for human-readable Fastify logs.
-- **Go branch** — port the backend to match Flow's primary stack.
+- **Add-app UI** — Dialog + `POST /apps` + a small config store with atomic
+  writes to `config.json`, plus a way to signal the poller to start polling
+  the new app immediately. Planned for a separate branch.
+- **HTTP integration tests** with `httptest.NewServer` — would require
+  injecting a base URL into `rss.go`. Skipped for time; the pure-parsing
+  functions (`toReview`, `normalizeEntries`) are unit-tested directly.
+- **Structured logging** (`log/slog`) instead of the default `log` package.
+- **Graceful shutdown for the poller's in-flight `pollOnce`** — currently the
+  `done` channel only stops the loop at iteration boundaries. A context.Context
+  threaded through `FetchReviewsPage` would cancel in-flight HTTP requests too.
+- **Virtualized list** on the frontend once the window grows to months and
+  crosses ~200 entries.
 
 ---
 
 ## Testing
 
 ```bash
-cd backend && pnpm test
+cd backend && go test ./...
 ```
 
-26 tests, ~300ms:
+24 tests across 2 packages:
 
-- **`tests/rss.test.ts`** (13) — Apple's labeled shape, filters bad rows
-  (no rating, non-integer, out of range), `Result.fail` on HTTP / network /
-  JSON failures, pagination walks and breaks on known IDs / `maxPages`.
-- **`tests/store.test.ts`** (13) — ENOENT → `[]`, dedupe by ID, newest-first
-  sort, per-appId isolation, **survives leftover `.tmp`**, persists across
-  `createStore` instances (the restart-survival contract).
+- **`internal/rss/rss_test.go`** (12) — `toReview` validates rating (1-5
+  integer), required fields, app-metadata skip. `normalizeEntries` handles
+  array, single object, empty, and invalid JSON. `buildFeedURL` smoke test.
+- **`internal/store/store_test.go`** (12) — ENOENT → `[]`, dedupe by ID
+  (last-write-wins), combines across calls, newest-first sort, per-appId
+  isolation, **survives leftover `.tmp` from a crash**, restart survival
+  (fresh `Store` reads the previous instance's data), on-disk JSON is valid.
+
+HTTP-level tests are skipped intentionally — the pure parsing functions cover
+the meaty logic, and end-to-end coverage via curl proves the wire contract.

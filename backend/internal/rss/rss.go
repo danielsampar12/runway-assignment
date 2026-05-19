@@ -15,12 +15,12 @@ type labeled struct {
 }
 
 type rawEntry struct {
-	ID       labeled  `json:"id"`
+	ID       labeled   `json:"id"`
 	Author   rawAuthor `json:"author"`
-	ImRating *labeled `json:"im:rating,omitempty"`
-	Title    labeled  `json:"title"`
-	Content  labeled  `json:"content"`
-	Updated  labeled  `json:"updated"`
+	ImRating *labeled  `json:"im:rating,omitempty"`
+	Title    labeled   `json:"title"`
+	Content  labeled   `json:"content"`
+	Updated  labeled   `json:"updated"`
 }
 
 type rawAuthor struct {
