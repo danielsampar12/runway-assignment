@@ -1,5 +1,8 @@
-node_modules/
-dist/
 data/*.json
 *.log
 .DS_Store
+
+# Go
+/runway-backend
+*.test
+*.out
