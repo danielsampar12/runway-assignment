@@ -35,7 +35,7 @@ After source changes, add `--build` to rebuild images.
 ### Option B — Local
 
 Requires **Go 1.23+** for the backend and Node 20+ / **pnpm** for the
-frontend. *(pnpm specifically; we'd rather not get supply-chain'd.)*
+frontend. _(pnpm specifically; we'd rather not get supply-chain'd.)_
 
 > ⚠️ Go 1.22 + macOS 26 (Sequoia) has a known LC_UUID linker bug that prevents
 > the binary from launching. Go 1.23+ resolves it, or you can just use Docker.
@@ -76,9 +76,7 @@ docker run --rm -v "$(pwd):/src" -w /src golang:1.23-alpine go test ./...
   "port": 3001,
   "pollIntervalMs": 300000,
   "dataDir": "./data",
-  "apps": [
-    { "id": "595068606", "name": "Headspace", "country": "us" }
-  ]
+  "apps": [{ "id": "595068606", "name": "Headspace", "country": "us" }]
 }
 ```
 
@@ -160,17 +158,17 @@ Conventional Go layout — small package per concern under `internal/`:
 
 ### Key decisions
 
-| Decision | Why |
-|---|---|
-| **Go stdlib `net/http`** | Capable enough — routing, middleware, graceful shutdown all built-in. No framework needed; matches Flow's preference for stdlib-first |
-| **Per-app JSON file** | Spec allows external files; per-app gives natural isolation and easy debugging. Production = real DB |
-| **Atomic write via `os.Rename`** | Atomic on same-FS; a crash never corrupts the canonical file |
-| **`time.Timer` + select loop** over `time.Ticker` | Same overlap-proof reasoning as the Node version's recursive setTimeout — next tick scheduled only after current pollOnce finishes |
-| **`sync.Mutex` on Merge** | Serializes the read-then-write cycle. `Read` is safe without the lock because rename is atomic |
-| **JSON shape matches the Node version** | Same `data/<id>.json` layout — switch branches without losing reviews |
-| **`internal/` package layout** | Go convention for non-importable subpackages; signals "implementation details" to anyone consuming the module |
-| **SWR** for client data | Industry standard, ~5KB. Caching, dedup, revalidation, polling for free |
-| **shadcn/ui** | Components live in `src/components/ui/` — editable like any code, no opaque vendor styles |
+| Decision                                          | Why                                                                                                                                                    |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Go stdlib `net/http`**                          | Capable enough — routing, middleware, graceful shutdown all built-in. No framework needed; keeps the implementation lightweight and dependency-minimal |
+| **Per-app JSON file**                             | Spec allows external files; per-app gives natural isolation and easy debugging. Production = real DB                                                   |
+| **Atomic write via `os.Rename`**                  | Atomic on same-FS; a crash never corrupts the canonical file                                                                                           |
+| **`time.Timer` + select loop** over `time.Ticker` | Same overlap-proof reasoning as the Node version's recursive setTimeout — next tick scheduled only after current pollOnce finishes                     |
+| **`sync.Mutex` on Merge**                         | Serializes the read-then-write cycle. `Read` is safe without the lock because rename is atomic                                                         |
+| **JSON shape matches the Node version**           | Same `data/<id>.json` layout — switch branches without losing reviews                                                                                  |
+| **`internal/` package layout**                    | Go convention for non-importable subpackages; signals "implementation details" to anyone consuming the module                                          |
+| **SWR** for client data                           | Industry standard, ~5KB. Caching, dedup, revalidation, polling for free                                                                                |
+| **shadcn/ui**                                     | Components live in `src/components/ui/` — editable like any code, no opaque vendor styles                                                              |
 
 ---
 
