@@ -12,6 +12,7 @@ export function createPoller(apps: AppConfig[], store: Store, intervalMs = 5000)
   let stopped = false;
 
   async function pollOnce(): Promise<void> {
+    // Doing it sequentially for simplicity, could be parallelized if needed
     for (const app of apps) {
       try {
         const knownIds = await store.knownIds(app.id);
