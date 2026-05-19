@@ -35,7 +35,7 @@ After source changes, add `--build` to rebuild images.
 ### Option B — Local
 
 Requires **Go 1.23+** for the backend and Node 20+ / **pnpm** for the
-frontend. _(pnpm specifically; we'd rather not get supply-chain'd.)_
+frontend.
 
 > ⚠️ Go 1.22 + macOS 26 (Sequoia) has a known LC_UUID linker bug that prevents
 > the binary from launching. Go 1.23+ resolves it, or you can just use Docker.
